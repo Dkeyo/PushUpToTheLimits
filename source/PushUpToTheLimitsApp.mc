@@ -27,6 +27,14 @@ class PushUpToTheLimitsApp extends Application.AppBase {
         return [ view, delegate ];
     }
 
+    // Wywolywane gdy uzytkownik akceptuje dialog wybudzenia (requestApplicationWake)
+    // data = wartosc przekazana przez Background.exit() w ReminderServiceDelegate
+    function onBackgroundData(data as Application.PersistableType) as Void {
+        // Aplikacja jest juz w foreground - nic dodatkowego nie robimy.
+        // getInitialView() zostalo juz wywolane, licznik jest widoczny.
+        System.println(">>> onBackgroundData: " + data);
+    }
+
     function getServiceDelegate() as [System.ServiceDelegate] {
         return [new ReminderServiceDelegate()];
     }
@@ -140,13 +148,24 @@ class ReminderServiceDelegate extends System.ServiceDelegate {
         
         var msg;
         if (todayCount >= dailyGoal) {
-            msg = "GG! Cel " + dailyGoal + " zrobiony!";
+            msg = "Cel " + dailyGoal + " osiagniety! Swietna robota!";
         } else {
             var remaining = dailyGoal - todayCount;
-            msg = "Pompki: " + todayCount + "/" + dailyGoal + " (zostalo " + remaining + ")";
+            msg = "Czas na pompki! " + todayCount + "/" + dailyGoal + " (zostalo: " + remaining + ")";
         }
-        
+
         scheduleNextReminder();
+
+        // KLUCZOWE: prosi system o wyswietlenie dialogu z trescia msg.
+        // Bez tego wywolania background odpala sie po cichu - uzytkownik nic nie widzi.
+        // Wymaga jednego argumentu typu String (max 255 bajtow) - to tekst dialogu.
+        // Dziala dla watch app (device app). Ignorowane tylko dla watch face.
+        if (Background has :requestApplicationWake) {
+            Background.requestApplicationWake(msg);
+        }
+
+        // exit() musi byc ostatnie - konczy proces background
+        // msg trafia do AppBase.onBackgroundData() gdy uzytkownik zaakceptuje dialog
         Background.exit(msg);
     }
     

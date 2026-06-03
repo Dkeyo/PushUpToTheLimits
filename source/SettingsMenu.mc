@@ -29,12 +29,15 @@ class SettingsMenu extends WatchUi.Menu2 {
         
         // Pozycja 4: Reminder ON/OFF
         Menu2.addItem(new ToggleMenuItem(
-            "Reminder", 
+            "Reminder",
             {:enabled => "Wlaczony", :disabled => "Wylaczony"},
             :reminderToggle,
             reminderEnabled,
             {}
         ));
+
+        // Pozycja 5: Diagnostyka akcelerometru
+        Menu2.addItem(new MenuItem("Diagnostyka akcel.", "Pomiar sygnalu", :accelDiag, {}));
     }
 }
 
@@ -72,6 +75,11 @@ class SettingsMenuDelegate extends WatchUi.Menu2InputDelegate {
             // Zapisz nową wartość toggle
             var toggleItem = item as ToggleMenuItem;
             Application.Storage.setValue("reminderEnabled", toggleItem.isEnabled());
+        }
+        else if (id == :accelDiag) {
+            var diagView = new AccelDiagnosticView();
+            var diagDelegate = new AccelDiagnosticDelegate(diagView);
+            WatchUi.pushView(diagView, diagDelegate, WatchUi.SLIDE_LEFT);
         }
     }
 

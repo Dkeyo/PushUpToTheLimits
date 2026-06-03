@@ -42,19 +42,14 @@ class PushUpHistoryView extends WatchUi.View {
     function getDayOfWeek(daysAgo as Number) as Number {
         var pastMoment = Time.now().subtract(new Time.Duration(daysAgo * 86400));
         var info = Gregorian.info(pastMoment, Time.FORMAT_SHORT);
-        var dow = info.day_of_week - 1;
-        if (dow == 0) {
-            dow = 7;
-        }
-        return dow;
+        // `info.day_of_week` is 1..7 (Mon..Sun). Return 1..7 so callers can use (dow-1) as index.
+        return info.day_of_week;
     }
 
     function getCountForDay(daysAgo as Number) as Number {
         var key = getDateKey(daysAgo);
         var count = pushUpHistory[key];
-        if (count == null) {
-            return 0;
-        }
+        if (count == null) { return 0; }
         return count;
     }
 
@@ -66,121 +61,101 @@ class PushUpHistoryView extends WatchUi.View {
         var height = dc.getHeight();
         var centerX = width / 2;
 
-        // Tytul - bialy
+        // Naglowek: tytul (bialy) + cel (cyan) - wysoko, z dala od wykresu
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(centerX, 25, Graphics.FONT_TINY, 
+        dc.drawText(centerX, 24, Graphics.FONT_TINY,
                     "OSTATNIE 7 DNI", Graphics.TEXT_JUSTIFY_CENTER);
-
-        // Cel mniejsza czcionka pod tytulem
-        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(centerX, 50, Graphics.FONT_XTINY, 
-                    "Cel: " + dailyGoal.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, 50, Graphics.FONT_XTINY,
+                    "CEL " + dailyGoal.toString(), Graphics.TEXT_JUSTIFY_CENTER);
 
         drawBarChart(dc, width, height);
     }
 
     function drawBarChart(dc as Dc, width as Number, height as Number) as Void {
-        // SZTYWNA SKALA: max = cel
+        // Skala: max z celu i wszystkich 7 dni (slupki nigdy nie przekrocza maxValue)
         var maxValue = dailyGoal;
+        for (var j = 0; j < 7; j++) {
+            var v = getCountForDay(6 - j);
+            if (v > maxValue) { maxValue = v; }
+        }
+        if (maxValue <= 0) { maxValue = 1; }
 
-        // Obszar wykresu - od 80px od gory do 50px od dolu
-        var chartTop = 85;
-        var chartBottom = height - 50;
-        var chartHeight = chartBottom - chartTop;
-        
-        // Margines z bokow zeby zmiescic na okraglym ekranie
-        var sideMargin = 35;
+        // Obszar wykresu - marginesy dobrane pod OKRAGLY ekran (nic nie ucina)
+        var chartTop = 82;              // gora najwyzszego slupka
+        var chartBottom = height - 56;  // linia bazowa (nad etykietami dni)
+        var labelHeadroom = 16;         // miejsce na liczbe nad slupkiem
+        var chartHeight = chartBottom - chartTop - labelHeadroom;
+
+        var sideMargin = 60;            // szeroki margines - rogi kola nie ucinaja
         var chartWidth = width - 2 * sideMargin;
         var barAreaWidth = chartWidth / 7;
-        var barWidth = barAreaWidth - 6;  // wieksze odstepy miedzy slupkami
-        var startX = sideMargin;
+        var barWidth = barAreaWidth - 12;
 
-        // === LINIA CELU (przerywana czerwona pozioma) ===
-        var goalY = chartTop;  // gora wykresu = cel
-        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+        // Linia celu - przerywana cyan + etykieta na lewym koncu
+        var goalY = (chartBottom - (chartHeight * dailyGoal / maxValue)).toNumber();
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
         dc.setPenWidth(1);
-        // Rysujemy "przerywana" linie z malych kresek
-        var dashLength = 4;
-        var gapLength = 3;
-        var dashX = startX;
-        var endX = startX + chartWidth;
-        while (dashX < endX) {
-            var dashEnd = dashX + dashLength;
-            if (dashEnd > endX) {
-                dashEnd = endX;
-            }
-            dc.drawLine(dashX, goalY, dashEnd, goalY);
-            dashX = dashEnd + gapLength;
+        var dashX = sideMargin;
+        while (dashX < width - sideMargin) {
+            dc.drawLine(dashX, goalY, dashX + 3, goalY);
+            dashX += 6;
         }
 
-        // === SLUPKI ===
-        for (var i = 6; i >= 0; i--) {
-            var count = getCountForDay(i);
-            var dayIndex = 6 - i;
-            var x = startX + dayIndex * barAreaWidth + 3;
-            
-            // Wysokosc slupka - max ograniczone do chartHeight
-            var displayCount = count;
-            var overflow = false;
-            if (displayCount > maxValue) {
-                displayCount = maxValue;
-                overflow = true;
-            }
-            
+        // Slupki
+        for (var i = 0; i < 7; i++) {
+            var daysAgo = 6 - i;  // i=0 = 6 dni temu, i=6 = dzis
+            var count = getCountForDay(daysAgo);
+            var isToday = (daysAgo == 0);
+            var x = sideMargin + i * barAreaWidth;
+            var barX = x + (barAreaWidth - barWidth) / 2;  // slupek wycentrowany w kolumnie
+
             var barHeight = 0;
-            if (maxValue > 0) {
-                barHeight = (chartHeight * displayCount / maxValue).toNumber();
-            }
-            
-            // Kolor: zielony jesli osiagniety cel, czerwony jesli nie, ciemny jesli 0
-            if (count == 0) {
-                dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
-            } else if (count >= dailyGoal) {
-                dc.setColor(Graphics.COLOR_GREEN, Graphics.COLOR_TRANSPARENT);
-            } else {
-                dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-            }
-            
-            // Slupek
-            if (barHeight > 0) {
-                dc.fillRectangle(x, chartBottom - barHeight, barWidth, barHeight);
-            } else {
-                // Cienka linia dla 0
-                dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
-                dc.fillRectangle(x, chartBottom - 2, barWidth, 2);
-            }
-            
-            // STRZALKA gdy overflow (przekroczony cel)
-            if (overflow) {
-                dc.setColor(Graphics.COLOR_GREEN, Graphics.COLOR_TRANSPARENT);
-                var arrowX = x + barWidth / 2;
-                var arrowY = chartTop - 2;
-                // Trojkat skierowany w gore
-                dc.fillPolygon([
-                    [arrowX, arrowY - 6],
-                    [arrowX - 4, arrowY],
-                    [arrowX + 4, arrowY]
-                ]);
-            }
-            
-            // Etykieta dnia pod slupkiem
-            var dow = getDayOfWeek(i);
-            var label = dayLabels[dow - 1];
-            dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(x + barWidth / 2, chartBottom + 5, Graphics.FONT_XTINY, 
-                        label, Graphics.TEXT_JUSTIFY_CENTER);
-            
-            // Liczba nad slupkiem (tylko jesli > 0)
             if (count > 0) {
-                dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-                var textY = chartBottom - barHeight - 18;
-                if (overflow) {
-                    textY = chartTop - 22;  // pod strzalka jesli overflow
+                barHeight = (chartHeight * count / maxValue).toNumber();
+                if (barHeight < 3) { barHeight = 3; }
+            }
+
+            if (count == 0) {
+                // Pusty dzien - cienki szary kikut na linii bazowej
+                dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(barX, chartBottom - 3, barWidth, 3);
+            } else if (count >= dailyGoal) {
+                dc.setColor(Graphics.COLOR_DK_GREEN, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(barX, chartBottom - barHeight, barWidth, barHeight);
+            } else if (isToday) {
+                dc.setColor(ACCENT_HI, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(barX, chartBottom - barHeight, barWidth, barHeight);
+            } else {
+                dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(barX, chartBottom - barHeight, barWidth, barHeight);
+            }
+
+            // Liczba nad slupkiem (nigdy nie wychodzi ponad chartTop)
+            if (count > 0) {
+                var textY = chartBottom - barHeight - 16;
+                if (textY < chartTop - 16) { textY = chartTop - 16; }
+                if (isToday) {
+                    dc.setColor(ACCENT_HI, Graphics.COLOR_TRANSPARENT);
+                } else {
+                    dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
                 }
-                dc.drawText(x + barWidth / 2, textY, 
-                            Graphics.FONT_XTINY, count.toString(), 
+                dc.drawText(barX + barWidth / 2, textY,
+                            Graphics.FONT_XTINY, count.toString(),
                             Graphics.TEXT_JUSTIFY_CENTER);
             }
+
+            // Etykieta dnia pod linia bazowa
+            var dow = getDayOfWeek(daysAgo);
+            var label = dayLabels[dow - 1];
+            if (isToday) {
+                dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+            } else {
+                dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+            }
+            dc.drawText(barX + barWidth / 2, chartBottom + 6,
+                        Graphics.FONT_XTINY, label,
+                        Graphics.TEXT_JUSTIFY_CENTER);
         }
     }
 

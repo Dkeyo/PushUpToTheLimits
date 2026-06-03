@@ -193,77 +193,107 @@ class PushUpToTheLimitsView extends WatchUi.View {
         // === PIERSCIEN ===
         drawTickRing(dc, centerX, centerY, width, todayCount);
 
-        // Promień pierścienia żeby wiedzieć gdzie są narożniki
-        var ringRadius = (width / 2 - 8).toFloat();
-        
-        // === NAROZNIKI - pozycje na podstawie geometrii kola ===
-        // Dla kata 45 stopni: x = r*cos(45) = r*0.707, y = r*sin(45) = r*0.707
-        // Narożniki powinny być WEWNATRZ pierścienia ale blisko niego
-        var cornerOffset = (ringRadius * 0.62).toNumber();  // 62% promienia = wewnątrz pierścienia
-
-        // GORA LEWY (kat 315 stopni = lewy gorny)
-        var tlX = centerX - cornerOffset +20;
-        var tlY = centerY - cornerOffset + 20;
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(tlX, tlY, Graphics.FONT_XTINY, 
-                    "STREAK", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(tlX, tlY + 16, Graphics.FONT_TINY, 
-                    streak.toString() + "d", Graphics.TEXT_JUSTIFY_CENTER);
-
-        // GORA PRAWY (kat 45 stopni = prawy gorny)
-        var trX = centerX + cornerOffset - 10;
-        var trY = centerY - cornerOffset + 20;
         var now = Gregorian.info(Time.now(), Time.FORMAT_SHORT);
         var dayNames = ["NIE", "PON", "WT", "SR", "CZW", "PT", "SOB"];
         var dayName = dayNames[now.day_of_week - 1];
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(trX, trY, Graphics.FONT_XTINY, 
-                    dayName, Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(trX, trY + 16, Graphics.FONT_TINY, 
-                    now.day.toString(), Graphics.TEXT_JUSTIFY_CENTER);
 
-        // DOL LEWY (kat 225 stopni = lewy dolny)
-        var blX = centerX - cornerOffset + 40;
-        var blY = centerY + cornerOffset - 30;
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(blX, blY, Graphics.FONT_XTINY, 
-                    "WCZORAJ", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(blX, blY + 16, Graphics.FONT_TINY, 
-                    yesterday.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+        // === SYMETRYCZNE RZEDY POL DANYCH (zamiast krzywych 4 katow) ===
+        // Dwie rowne kolumny wzgledem srodka + gorny i dolny rzad = symetria
+        var colL = centerX - 72;
+        var colR = centerX + 72;
+        drawField(dc, colL, 56, "STREAK", streak.toString() + "d");
+        drawField(dc, colR, 56, dayName, now.day.toString());
+        drawField(dc, colL, 330, "WCZ", yesterday.toString());
+        drawField(dc, colR, 330, "MAX", best.toString());
 
-        // DOL PRAWY (kat 135 stopni = prawy dolny)
-        var brX = centerX + cornerOffset - 40;
-        var brY = centerY + cornerOffset - 30;
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(brX, brY, Graphics.FONT_XTINY, 
-                    "REKORD", Graphics.TEXT_JUSTIFY_CENTER);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(brX, brY + 16, Graphics.FONT_TINY, 
-                    best.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+        // === HERO: dwukolorowa liczba - pompki (biel/zielen) / cel (cyan) ===
+        drawHero(dc, centerX, centerY, todayCount, dailyGoal);
 
-        // === SRODEK: Duza liczba ===
-        if (todayCount >= dailyGoal) {
+        // === MINI wykres 7 dni - podglad pod liczba ===
+        drawMiniBars(dc, centerX, 312);
+    }
+
+    // Pole danych: mala cyan etykieta + biala wartosc pod spodem (wycentrowane)
+    function drawField(dc as Dc, x as Number, y as Number, label as String, value as String) as Void {
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x, y, Graphics.FONT_XTINY, label, Graphics.TEXT_JUSTIFY_CENTER);
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x, y + 16, Graphics.FONT_TINY, value, Graphics.TEXT_JUSTIFY_CENTER);
+    }
+
+    // Hero: wielka liczba pompek (biel/zielen) + mniejsze "/cel" w cyan,
+    // wyrownane do wspolnej dolnej krawedzi - dwukolorowy efekt jak "20:33" na tarczy
+    function drawHero(dc as Dc, centerX as Number, centerY as Number,
+                      today as Number, goal as Number) as Void {
+        var fBig = Graphics.FONT_NUMBER_THAI_HOT;
+        var fSmall = Graphics.FONT_NUMBER_MEDIUM;
+        var s1 = today.toString();
+        var s2 = "/" + goal.toString();
+        var w1 = dc.getTextWidthInPixels(s1, fBig);
+        var w2 = dc.getTextWidthInPixels(s2, fSmall);
+        var hBig = dc.getFontHeight(fBig);
+        var hSmall = dc.getFontHeight(fSmall);
+        var startX = centerX - (w1 + w2) / 2;
+        var topBig = centerY - 100;
+        var topSmall = topBig + (hBig - hSmall);  // wyrownanie dolnych krawedzi
+
+        if (today >= goal) {
             dc.setColor(Graphics.COLOR_GREEN, Graphics.COLOR_TRANSPARENT);
         } else {
             dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         }
-        // Liczba wycentrowana na środku
-        dc.drawText(centerX, centerY -100, Graphics.FONT_NUMBER_THAI_HOT, 
-                    todayCount.toString(), Graphics.TEXT_JUSTIFY_CENTER);
+        dc.drawText(startX, topBig, fBig, s1, Graphics.TEXT_JUSTIFY_LEFT);
 
-        // === SEPARATOR poziomy pod liczba ===
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.setPenWidth(1);
-        dc.drawLine(centerX - 35, centerY +50, centerX + 50, centerY +50);
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(startX + w1, topSmall, fSmall, s2, Graphics.TEXT_JUSTIFY_LEFT);
+    }
 
-        // === Postep pod separatorem ===
-        dc.setColor(Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(centerX, centerY + 52, Graphics.FONT_XTINY, 
-                    todayCount.toString() + " / " + dailyGoal.toString(), 
-                    Graphics.TEXT_JUSTIFY_CENTER);
+    // Maly wykres ostatnich 7 dni - slupki bordo, dzisiejszy jasniejszy
+    function drawMiniBars(dc as Dc, centerX as Number, baselineY as Number) as Void {
+        var barW = 6;
+        var gap = 5;
+        var maxH = 30;
+        var totalW = 7 * barW + 6 * gap;  // 7 slupkow + 6 odstepow = 72px
+        var startX = centerX - totalW / 2;
+
+        // Skala: wzgledem max z 7 dni lub celu (cokolwiek wieksze)
+        var maxValue = dailyGoal;
+        for (var d = 0; d < 7; d++) {
+            var key = getDateKeyDaysAgo(d);
+            var c = pushUpHistory[key];
+            if (c != null && c > maxValue) { maxValue = c; }
+        }
+        if (maxValue <= 0) { maxValue = 1; }
+
+        for (var i = 0; i < 7; i++) {
+            var daysAgo = 6 - i;  // i=6 = dzis (ostatni slupek po prawej)
+            var key = getDateKeyDaysAgo(daysAgo);
+            var count = pushUpHistory[key];
+            if (count == null) { count = 0; }
+
+            var x = startX + i * (barW + gap);
+
+            var h = 0;
+            if (count > 0) {
+                h = (maxH * count / maxValue).toNumber();
+                if (h < 2) { h = 2; }  // minimalna widoczna wysokosc
+            }
+
+            var isToday = (daysAgo == 0);
+            if (count == 0) {
+                // pusty dzien - szary kikut przy linii bazowej
+                dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(x, baselineY - 2, barW, 2);
+            } else if (isToday) {
+                // dzisiejszy slupek - jasny cyan
+                dc.setColor(ACCENT_HI, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(x, baselineY - h, barW, h);
+            } else {
+                // pozostale dni - cyan
+                dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+                dc.fillRectangle(x, baselineY - h, barW, h);
+            }
+        }
     }
 
     function drawTickRing(dc as Dc, centerX as Number, centerY as Number, 
@@ -279,7 +309,7 @@ class PushUpToTheLimitsView extends WatchUi.View {
         }
         var filledTicks = (totalTicks * progress).toNumber();
 
-        var fillColor = Graphics.COLOR_DK_RED;
+        var fillColor = ACCENT;
         if (count >= dailyGoal) {
             fillColor = Graphics.COLOR_DK_GREEN;
         }
@@ -304,10 +334,10 @@ class PushUpToTheLimitsView extends WatchUi.View {
             
             if (i < filledTicks) {
                 dc.setColor(fillColor, Graphics.COLOR_TRANSPARENT);
-                dc.setPenWidth(3);
+                dc.setPenWidth(2);
             } else {
                 dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
-                dc.setPenWidth(2);
+                dc.setPenWidth(1);
             }
             
             dc.drawLine(x1, y1, x2, y2);
@@ -332,12 +362,12 @@ class PushUpToTheLimitsView extends WatchUi.View {
         dc.drawText(centerX, centerY - 70, Graphics.FONT_NUMBER_MEDIUM, 
                     todayCount.toString(), Graphics.TEXT_JUSTIFY_CENTER);
         
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
         dc.setPenWidth(1);
         dc.drawLine(centerX - 80, centerY - 5, centerX + 80, centerY - 5);
-        
-        dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(centerX, centerY + 5, Graphics.FONT_TINY, 
+
+        dc.setColor(ACCENT, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(centerX, centerY + 5, Graphics.FONT_TINY,
                     currentMessage, Graphics.TEXT_JUSTIFY_CENTER);
         
         if (!currentSubMessage.equals("")) {
