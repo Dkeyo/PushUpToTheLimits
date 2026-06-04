@@ -20,6 +20,12 @@ class AccelDiagnosticView extends WatchUi.View {
     var bufferIndex as Number = 0;
     var bufferFull as Boolean = false;
 
+    // --- Diagnostyka dzialania sensora (zeby bylo widac na zegarku) ---
+    var cbCount as Number = 0;    // ile razy odpalil sie callback
+    var smpCount as Number = 0;   // ile probek lacznie przetworzono
+    var usedRate as Number = 0;   // faktycznie uzyta czestotliwosc
+    var errMsg as String = "";    // komunikat bledu jesli rejestracja sie wywali
+
     function initialize() {
         View.initialize();
         for (var i = 0; i < 75; i++) {
@@ -33,42 +39,57 @@ class AccelDiagnosticView extends WatchUi.View {
         lastPeakTime = 0;
         bufferIndex = 0;
         bufferFull = false;
+        cbCount = 0;
+        smpCount = 0;
+        errMsg = "";
         for (var i = 0; i < 75; i++) {
             magBuffer[i] = 1.0;
         }
 
-        var sampleRate = 25;
-        if (Sensor has :getMaxSampleRateForSensorType) {
-            var maxRate = Sensor.getMaxSampleRateForSensorType(:accelerometer);
-            if (maxRate instanceof Number && maxRate < 25) {
-                sampleRate = maxRate;
+        // Cala rejestracja w try/catch - jesli sensor wywali blad, pokazemy go na ekranie
+        try {
+            var sampleRate = 25;
+            if (Sensor has :getMaxSampleRateForSensorType) {
+                var maxRate = Sensor.getMaxSampleRateForSensorType(:accelerometer);
+                if (maxRate instanceof Number && maxRate > 0 && maxRate < 25) {
+                    sampleRate = maxRate;
+                }
             }
-        }
+            usedRate = sampleRate;
 
-        var options = {
-            :period => 1,
-            :accelerometer => { :enabled => true, :sampleRate => sampleRate }
-        };
-        Sensor.registerSensorDataListener(method(:onSensorData), options);
-        isRecording = true;
+            var options = {
+                :period => 1,
+                :accelerometer => { :enabled => true, :sampleRate => sampleRate }
+            };
+            Sensor.registerSensorDataListener(method(:onSensorData), options);
+            isRecording = true;
+        } catch (e) {
+            errMsg = e.getErrorMessage();
+            isRecording = false;
+        }
     }
 
     function stopRecording() as Void {
         if (isRecording) {
-            Sensor.unregisterSensorDataListener();
+            try {
+                Sensor.unregisterSensorDataListener();
+            } catch (e) {
+            }
             isRecording = false;
         }
     }
 
     function onSensorData(sensorData as Sensor.SensorData) as Void {
+        cbCount++;  // callback odpalil sie (niezaleznie od tego czy sa dane)
         var accel = sensorData.accelerometerData;
-        if (accel == null) { return; }
+        if (accel == null) { WatchUi.requestUpdate(); return; }
         var xs = accel.x;
         var ys = accel.y;
         var zs = accel.z;
-        if (xs == null || ys == null || zs == null) { return; }
+        if (xs == null || ys == null || zs == null) { WatchUi.requestUpdate(); return; }
         var count = xs.size();
-        if (count == 0) { return; }
+        if (count == 0) { WatchUi.requestUpdate(); return; }
+        smpCount += count;
 
         for (var i = 0; i < count; i++) {
             var xRaw = xs[i];
@@ -119,7 +140,13 @@ class AccelDiagnosticView extends WatchUi.View {
     }
 
     function onLayout(dc as Dc) as Void {}
-    function onShow() as Void {}
+
+    // AUTO-START: pomiar rusza od razu po wejsciu, bez naciskania przycisku
+    function onShow() as Void {
+        if (!isRecording) {
+            startRecording();
+        }
+    }
 
     function onHide() as Void {
         stopRecording();
@@ -180,10 +207,22 @@ class AccelDiagnosticView extends WatchUi.View {
         // --- Live chart ---
         drawChart(dc, width, height);
 
+        // --- DIAGNOSTYKA: licznik callbackow / probek / Hz ---
+        // Jesli SMP rosnie gdy ruszasz reka = sensor dziala. Jesli stoi 0 = nie dostarcza danych.
+        var dbg = "CB:" + cbCount.toString() + " SMP:" + smpCount.toString() + " Hz:" + usedRate.toString();
+        dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(cx, height - 38, Graphics.FONT_XTINY, dbg, Graphics.TEXT_JUSTIFY_CENTER);
+
+        // --- Komunikat bledu (jesli rejestracja sensora sie wywalila) ---
+        if (!errMsg.equals("")) {
+            dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
+            dc.drawText(cx, 150, Graphics.FONT_XTINY, "ERR: " + errMsg, Graphics.TEXT_JUSTIFY_CENTER);
+        }
+
         // --- Bottom hint ---
         dc.setColor(Graphics.COLOR_DK_GRAY, Graphics.COLOR_TRANSPARENT);
         dc.drawText(cx, height - 18, Graphics.FONT_XTINY,
-            isRecording ? "BTN=stop  BACK=exit" : "BTN=start  BACK=exit",
+            isRecording ? "BTN=restart  BACK=wyjscie" : "BTN=start  BACK=wyjscie",
             Graphics.TEXT_JUSTIFY_CENTER);
     }
 

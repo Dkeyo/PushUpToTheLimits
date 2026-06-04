@@ -1,21 +1,31 @@
 import Toybox.Lang;
 import Toybox.WatchUi;
 import Toybox.Application;
+import Toybox.Time;
+import Toybox.Time.Gregorian;
 
 class SettingsMenu extends WatchUi.Menu2 {
 
     function initialize() {
         Menu2.initialize({:title => "Ustawienia"});
-        
+
         // Załaduj aktualne wartości
         var dailyGoal = Application.Storage.getValue("dailyGoal");
         if (dailyGoal == null) { dailyGoal = 100; }
-        
+
         var reminderHour = Application.Storage.getValue("reminderHour");
         if (reminderHour == null) { reminderHour = 19; }
-        
+
         var reminderEnabled = Application.Storage.getValue("reminderEnabled");
         if (reminderEnabled == null) { reminderEnabled = true; }
+
+        // Podglad czasu nastepnego zaplanowanego remindera
+        var nextStr = "brak";
+        var nextEpoch = Application.Storage.getValue("nextReminderEpoch");
+        if (nextEpoch != null && nextEpoch instanceof Number) {
+            var ni = Gregorian.info(new Time.Moment(nextEpoch), Time.FORMAT_SHORT);
+            nextStr = ni.hour.format("%02d") + ":" + ni.min.format("%02d");
+        }
         
         // Pozycja 1: Historia
         Menu2.addItem(new MenuItem("Historia 7 dni", "Wykres", :history, {}));
@@ -36,7 +46,16 @@ class SettingsMenu extends WatchUi.Menu2 {
             {}
         ));
 
-        // Pozycja 5: Diagnostyka akcelerometru
+        // Pozycja 5: Podglad nastepnego remindera (tylko do odczytu)
+        Menu2.addItem(new MenuItem("Nast. przypomnienie", nextStr, :reminderNext, {}));
+
+        // Pozycja 6: Test remindera za ~5 min (debug)
+        Menu2.addItem(new MenuItem("Test remindera", "za ~5 min", :reminderTest, {}));
+
+        // Pozycja 7: Licznik pompek z akcelerometru
+        Menu2.addItem(new MenuItem("Licznik pompek", "Auto-liczenie", :pushCounter, {}));
+
+        // Pozycja 6: Diagnostyka akcelerometru
         Menu2.addItem(new MenuItem("Diagnostyka akcel.", "Pomiar sygnalu", :accelDiag, {}));
     }
 }
@@ -72,9 +91,24 @@ class SettingsMenuDelegate extends WatchUi.Menu2InputDelegate {
             WatchUi.pushView(hourMenu, hourDelegate, WatchUi.SLIDE_LEFT);
         }
         else if (id == :reminderToggle) {
-            // Zapisz nową wartość toggle
+            // Zapisz nową wartość toggle i przeplanuj/usun reminder
             var toggleItem = item as ToggleMenuItem;
             Application.Storage.setValue("reminderEnabled", toggleItem.isEnabled());
+            var app1 = Application.getApp() as PushUpToTheLimitsApp;
+            app1.scheduleReminder();
+        }
+        else if (id == :reminderTest) {
+            // Zaplanuj testowy reminder za ~5 min i daj znac
+            var app2 = Application.getApp() as PushUpToTheLimitsApp;
+            app2.scheduleTestReminder();
+            if (WatchUi has :showToast) {
+                WatchUi.showToast("Test za ~5 min", {});
+            }
+        }
+        else if (id == :pushCounter) {
+            var counterView = new PushUpCounterView();
+            var counterDelegate = new PushUpCounterDelegate(counterView);
+            WatchUi.pushView(counterView, counterDelegate, WatchUi.SLIDE_LEFT);
         }
         else if (id == :accelDiag) {
             var diagView = new AccelDiagnosticView();
@@ -121,14 +155,11 @@ class GoalMenuDelegate extends WatchUi.Menu2InputDelegate {
     }
 }
 
-// Menu wyboru godziny remindera
+// Menu wyboru godziny remindera - pelna doba 0..23
 class HourMenu extends WatchUi.Menu2 {
     function initialize() {
         Menu2.initialize({:title => "Godzina remindera"});
-        // Popularne godziny
-        var hours = [7, 9, 12, 15, 17, 18, 19, 20, 21, 22];
-        for (var i = 0; i < hours.size(); i++) {
-            var h = hours[i];
+        for (var h = 0; h < 24; h++) {
             var label = h.format("%02d") + ":00";
             Menu2.addItem(new MenuItem(label, null, h, {}));
         }

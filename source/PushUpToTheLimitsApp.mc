@@ -39,72 +39,53 @@ class PushUpToTheLimitsApp extends Application.AppBase {
         return [new ReminderServiceDelegate()];
     }
 
-    // Pobiera tablice godzin z Storage
-    // Domyslnie [12, 16, 19] - trzy reminders
-    function getReminderHours() as Array {
-        var hours = Application.Storage.getValue("reminderHours");
-        if (hours == null || !(hours instanceof Array) || hours.size() == 0) {
-            return [12, 16, 19];  // default
+    // Liczy najblizsze wystapienie godziny:minuty (dzis, a jesli minelo - jutro)
+    function nextOccurrence(hour as Number, minute as Number) as Time.Moment {
+        var now = Time.now();
+        var nowInfo = Gregorian.info(now, Time.FORMAT_SHORT);
+        var moment = Gregorian.moment({
+            :year => nowInfo.year,
+            :month => nowInfo.month,
+            :day => nowInfo.day,
+            :hour => hour,
+            :minute => minute,
+            :second => 0
+        });
+        if (!moment.greaterThan(now)) {
+            moment = moment.add(new Time.Duration(86400));  // juz minelo dzis -> jutro
         }
-        return hours;
+        return moment;
     }
 
-    // Planuje NAJBLIZSZY reminder z listy
+    // Rejestruje zdarzenie + ZAPISUJE czas nastepnego remindera (do podgladu w ustawieniach)
+    function registerReminder(moment as Time.Moment) as Void {
+        Background.deleteTemporalEvent();
+        Background.registerForTemporalEvent(moment);
+        Application.Storage.setValue("nextReminderEpoch", moment.value());
+        System.println(">>> Reminder zarejestrowany, epoch=" + moment.value());
+    }
+
+    // Planuje reminder na USTAWIONA godzine (klucz reminderHour - ten sam ktory ustawia UI)
     function scheduleReminder() as Void {
         var enabled = Application.Storage.getValue("reminderEnabled");
         if (enabled == null) { enabled = true; }
-        
+
         if (!enabled) {
             Background.deleteTemporalEvent();
+            Application.Storage.setValue("nextReminderEpoch", null);
             System.println(">>> Reminder wylaczony");
             return;
         }
-        
-        var hours = getReminderHours();
-        var now = Time.now();
-        var nowInfo = Gregorian.info(now, Time.FORMAT_SHORT);
-        
-        // Znajdz nastepny reminder
-        var nextReminder = null;
-        for (var i = 0; i < hours.size(); i++) {
-            var h = hours[i];
-            var moment = Gregorian.moment({
-                :year => nowInfo.year,
-                :month => nowInfo.month,
-                :day => nowInfo.day,
-                :hour => h,
-                :minute => 0,
-                :second => 0
-            });
-            if (moment.greaterThan(now)) {
-                if (nextReminder == null || moment.lessThan(nextReminder)) {
-                    nextReminder = moment;
-                }
-            }
-        }
-        
-        // Jesli wszystkie godziny dzisiaj juz minely - bierzemy pierwsza z jutra
-        if (nextReminder == null) {
-            var firstHour = hours[0];
-            for (var i = 0; i < hours.size(); i++) {
-                if (hours[i] < firstHour) {
-                    firstHour = hours[i];
-                }
-            }
-            var tomorrowMoment = Gregorian.moment({
-                :year => nowInfo.year,
-                :month => nowInfo.month,
-                :day => nowInfo.day,
-                :hour => firstHour,
-                :minute => 0,
-                :second => 0
-            });
-            nextReminder = tomorrowMoment.add(new Time.Duration(86400));
-        }
-        
-        Background.deleteTemporalEvent();
-        Background.registerForTemporalEvent(nextReminder);
-        System.println(">>> Nastepny reminder zarejestrowany");
+
+        var hour = Application.Storage.getValue("reminderHour");
+        if (hour == null || !(hour instanceof Number)) { hour = 19; }
+        registerReminder(nextOccurrence(hour, 0));
+    }
+
+    // TEST: reminder za 5 minut (minimum Garmina) - do szybkiego debugowania
+    function scheduleTestReminder() as Void {
+        registerReminder(Time.now().add(new Time.Duration(300)));
+        System.println(">>> TEST reminder za 5 min");
     }
 }
 
@@ -169,54 +150,28 @@ class ReminderServiceDelegate extends System.ServiceDelegate {
         Background.exit(msg);
     }
     
-    // Planuje NAJBLIZSZY z listy godzin
+    // Po odpaleniu planuje kolejny reminder na ustawiona godzine (klucz reminderHour)
     function scheduleNextReminder() as Void {
-        var hours = Application.Storage.getValue("reminderHours");
-        if (hours == null || !(hours instanceof Array) || hours.size() == 0) {
-            hours = [12, 16, 19];
-        }
-        
+        var hour = Application.Storage.getValue("reminderHour");
+        if (hour == null || !(hour instanceof Number)) { hour = 19; }
+
         var now = Time.now();
         var nowInfo = Gregorian.info(now, Time.FORMAT_SHORT);
-        
-        var nextReminder = null;
-        for (var i = 0; i < hours.size(); i++) {
-            var h = hours[i];
-            var moment = Gregorian.moment({
-                :year => nowInfo.year,
-                :month => nowInfo.month,
-                :day => nowInfo.day,
-                :hour => h,
-                :minute => 0,
-                :second => 0
-            });
-            if (moment.greaterThan(now)) {
-                if (nextReminder == null || moment.lessThan(nextReminder)) {
-                    nextReminder = moment;
-                }
-            }
+        var moment = Gregorian.moment({
+            :year => nowInfo.year,
+            :month => nowInfo.month,
+            :day => nowInfo.day,
+            :hour => hour,
+            :minute => 0,
+            :second => 0
+        });
+        if (!moment.greaterThan(now)) {
+            moment = moment.add(new Time.Duration(86400));  // juz minelo dzis -> jutro
         }
-        
-        if (nextReminder == null) {
-            var firstHour = hours[0];
-            for (var i = 0; i < hours.size(); i++) {
-                if (hours[i] < firstHour) {
-                    firstHour = hours[i];
-                }
-            }
-            var tomorrowMoment = Gregorian.moment({
-                :year => nowInfo.year,
-                :month => nowInfo.month,
-                :day => nowInfo.day,
-                :hour => firstHour,
-                :minute => 0,
-                :second => 0
-            });
-            nextReminder = tomorrowMoment.add(new Time.Duration(86400));
-        }
-        
+
         Background.deleteTemporalEvent();
-        Background.registerForTemporalEvent(nextReminder);
+        Background.registerForTemporalEvent(moment);
+        Application.Storage.setValue("nextReminderEpoch", moment.value());
     }
 }
 

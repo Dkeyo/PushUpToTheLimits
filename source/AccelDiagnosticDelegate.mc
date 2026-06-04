@@ -10,13 +10,10 @@ class AccelDiagnosticDelegate extends WatchUi.BehaviorDelegate {
         view = viewRef;
     }
 
-    // Main button (SELECT/START) = toggle recording
+    // Main button (SELECT/START) = czysty restart pomiaru (zeruje liczniki)
     function onSelect() as Boolean {
-        if (view.isRecording) {
-            view.stopRecording();
-        } else {
-            view.startRecording();
-        }
+        view.stopRecording();
+        view.startRecording();
         WatchUi.requestUpdate();
         return true;
     }
